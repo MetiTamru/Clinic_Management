@@ -62,3 +62,9 @@ class Employee(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.first_name} ({self.emp_id})"
+
+class Patient(models.Model):
+    id = models.AutoField(primary_key=True)
+    first_name = models.CharField(max_length=100)
+    father_name = models.CharField(max_length=100)
+    grandfather_name = models.CharField(max_length=100)      
