@@ -10,7 +10,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'body', 'image', 'region', 'zone', 'woreda', 'kebele', 'email', 'phone_number',
             'institution_name', 'field', 'date_of_graduate', 'company_names', 'role',
             'salary', 'pdf', 'licence_type', 'give_date', 'expired_date', 'bank_name',
-            'bank_account', 'password'
+            'bank_account'
         ]
         extra_kwargs = {
             'password': {'write_only': True}
@@ -22,6 +22,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         employee.set_password(password)
         employee.save()
         return employee
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()

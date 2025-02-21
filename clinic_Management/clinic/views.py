@@ -30,6 +30,36 @@ class EmployeeRegistrationView(generics.CreateAPIView):
         return Response({
             'employee': EmployeeSerializer(employee).data
         }, status=status.HTTP_201_CREATED)
+
+class EmployeeListView(generics.ListAPIView):
+    serializer_class = EmployeeSerializer
+    permission_classes = [AllowAny]  # Only authenticated users can list employees
+
+    def get_queryset(self):
+        return Employee.objects.all()
+    
+class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = EmployeeSerializer
+    permission_classes = [AllowAny]  # Only authenticated users can update/delete
+
+    def get_queryset(self):
+        return Employee.objects.all()
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response({
+            'employee': EmployeeSerializer(instance).data
+        }, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response({'message': 'Employee deleted successfully'}, status=status.HTTP_204_NO_CONTENT)    
+
 class LoginView(generics.GenericAPIView):
     serializer_class = LoginSerializer
     permission_classes = [AllowAny]
