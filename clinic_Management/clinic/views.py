@@ -3,9 +3,14 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Employee, Patient, PatientNurseDetails, PatientDoctorDetail, LaboratoryPatientDetail
-from .serializers import EmployeeSerializer, LoginSerializer, TokenRefreshSerializer, PatientSerializer, PatientNurseDetailsSerializer, PatientDoctorDetailSerializer, LaboratoryPatientDetailSerializer
-from rest_framework.exceptions import PermissionDenied
+from .models import Employee, Patient, PatientNurseDetails, PatientDoctorDetail, LaboratoryPatientDetail, Payment
+from .serializers import EmployeeSerializer, LoginSerializer, TokenRefreshSerializer, PatientSerializer, PatientNurseDetailsSerializer, PatientDoctorDetailSerializer, LaboratoryPatientDetailSerializer, PaymentSerializer
+from rest_framework.exceptions import PermissionDenied  
+from rest_framework_simplejwt.authentication import JWTAuthentication   
+from rest_framework.decorators import api_view      
+from rest_framework import status
+from rest_framework.response import Response        
+
 
 class PatientDoctorReviewView(generics.UpdateAPIView):
     serializer_class = PatientSerializer
@@ -25,7 +30,7 @@ class PatientDoctorReviewView(generics.UpdateAPIView):
         
         # Handle doctor-specific details and lab referral
         doctor_details_data = request.data.pop('doctor_details', {})
-        lab_referral = request.data.pop('lab_referral', False)  # New field to indicate lab referral
+        lab_referral = request.data.pop('lab_referral', False)
         serializer = self.get_serializer(instance, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)
         instance = serializer.save()
@@ -50,11 +55,13 @@ class PatientDoctorReviewView(generics.UpdateAPIView):
         
         # Handle lab referral if requested
         if lab_referral:
-            instance.status = 'PENDING_LAB'
+            if not instance.payment_status:
+                raise PermissionDenied("Payment for lab tests is required before referral")
+            instance.status = 'PENDING_PAYMENT'  # Transition to pending payment first
             instance.save()
             return Response({
                 'patient': PatientSerializer(instance).data,
-                'message': 'Patient referred to laboratory for analysis'
+                'message': 'Patient referred to laboratory, pending payment'
             }, status=status.HTTP_200_OK)
         
         # Complete patient review if no lab referral
@@ -85,11 +92,15 @@ class LaboratoryPatientUpdateView(generics.UpdateAPIView):
         instance = self.get_object()
         if request.user.role != 'LabTechnician':
             raise PermissionDenied("Only Lab Technicians can update laboratory details")
+        
+        if not instance.patient.payment_status:
+            raise PermissionDenied("Payment for lab tests is required before proceeding")
+        
         serializer = self.get_serializer(instance, data=request.data, partial=True, context={'request': request, 'patient_id': instance.patient.id})
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
         
-        # Update patient status to 'COMPLETED' after lab results
+        # Update patient status to 'COMPLETED' after lab results and payment verification
         instance.patient.lab_technician = request.user
         instance.patient.status = 'COMPLETED'
         instance.patient.save()
@@ -99,6 +110,36 @@ class LaboratoryPatientUpdateView(generics.UpdateAPIView):
             'lab_details': LaboratoryPatientDetailSerializer(instance).data,
             'message': 'Laboratory details updated and patient record completed'
         }, status=status.HTTP_200_OK)
+
+class PaymentCreateView(generics.CreateAPIView):
+    serializer_class = PaymentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        patient_id = request.data.get('patient')
+        try:
+            patient = Patient.objects.get(id=patient_id)
+        except Patient.DoesNotExist:
+            raise PermissionDenied("Patient not found")
+        
+        # Check if patient is pending payment for lab
+        if patient.status != 'PENDING_PAYMENT':
+            raise PermissionDenied("Payment is only required for patients pending lab tests")
+        
+        serializer = self.get_serializer(data=request.data, context={'patient_id': patient_id, 'request': request})
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save()
+        
+        # Update patient payment status
+        patient.payment_status = True
+        patient.status = 'PENDING_LAB'  # Transition to pending lab after payment
+        patient.save()
+        
+        return Response({
+            'payment': PaymentSerializer(payment).data,
+            'patient': PatientSerializer(patient).data,
+            'message': 'Payment recorded, patient ready for laboratory analysis'
+        }, status=status.HTTP_201_CREATED)
 
 class PatientHistoryView(generics.RetrieveAPIView):
     serializer_class = PatientSerializer
@@ -270,3 +311,11 @@ class EmployeeDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response({'message': 'Employee deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['POST'])
+
+def logout_view(request):
+    response = Response({"message": "Logged out successfully"}, status=200)
+    response.delete_cookie("jwt")  # Adjust based on your auth setup
+    return responses

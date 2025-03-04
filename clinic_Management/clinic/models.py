@@ -76,6 +76,7 @@ class Patient(models.Model):
         ('IN_PROGRESS', 'In Progress by Nurse'),
         ('PENDING_DOCTOR', 'Pending Review by Doctor'),
         ('PENDING_LAB', 'Pending Laboratory Analysis'),
+        ('PENDING_PAYMENT', 'Pending Payment for Lab'),
         ('COMPLETED', 'Completed'),
     )
 
@@ -104,12 +105,26 @@ class Patient(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    payment_status = models.BooleanField(default=False, help_text="Indicates if the lab payment has been made")
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} (ID: {self.id})"
 
     class Meta:
         ordering = ['-registration_date']
+
+class Payment(models.Model):
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='payments')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_date = models.DateTimeField(auto_now_add=True)
+    payment_method = models.CharField(max_length=50, blank=True)  # e.g., Cash, Card, Mobile Money
+    transaction_id = models.CharField(max_length=100, unique=True, blank=True)
+    status = models.BooleanField(default=True, help_text="Indicates if the payment is confirmed")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Payment for {self.patient} - ${self.amount}"
 
 class PatientNurseDetails(models.Model):
     patient = models.OneToOneField(Patient, on_delete=models.CASCADE, related_name='nurse_details')
@@ -133,17 +148,19 @@ class PatientDoctorDetail(models.Model):
     notes = models.TextField(blank=True)
     doctor = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, related_name='doctor_patient_details', limit_choices_to={'role': 'Doctor'})
     updated_at = models.DateTimeField(auto_now=True)
+    lab_referral = models.BooleanField(default=False, help_text="Indicates if lab tests are required")
 
     def __str__(self):
         return f"Doctor Details for {self.patient}"
 
 class LaboratoryPatientDetail(models.Model):
     patient = models.OneToOneField(Patient, on_delete=models.CASCADE, related_name='lab_details')
-    test_type = models.CharField(max_length=100, blank=True)  # e.g., Blood Test, Urine Test
-    test_results = models.TextField(blank=True)  # Results of the test
+    test_type = models.CharField(max_length=100, blank=True)
+    test_results = models.TextField(blank=True)
     sample_collected = models.BooleanField(default=False)
     lab_technician = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, related_name='lab_patient_details', limit_choices_to={'role': 'LabTechnician'})
     updated_at = models.DateTimeField(auto_now=True)
+    payment_verified = models.BooleanField(default=False, help_text="Indicates if payment for lab tests has been verified")
 
     def __str__(self):
         return f"Lab Details for {self.patient}"

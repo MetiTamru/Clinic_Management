@@ -1,6 +1,6 @@
 # clinic/urls.py
 from django.urls import path
-from .views import EmployeeRegistrationView, LoginView, TokenRefreshView, EmployeeListView, EmployeeDetailView, PatientRegistrationView, PatientNurseUpdateView, PatientDoctorReviewView, PatientListView, PatientHistoryView, LaboratoryPatientUpdateView
+from .views import EmployeeRegistrationView, LoginView, TokenRefreshView, EmployeeListView, EmployeeDetailView, PatientRegistrationView, PatientNurseUpdateView, PatientDoctorReviewView, PatientListView, PatientHistoryView, LaboratoryPatientUpdateView, PaymentCreateView
 
 urlpatterns = [
     path('register/', EmployeeRegistrationView.as_view(), name='employee-register'),
@@ -14,4 +14,5 @@ urlpatterns = [
     path('patients/', PatientListView.as_view(), name='patient-list'),
     path('patients/<int:pk>/history/', PatientHistoryView.as_view(), name='patient-history'),
     path('patients/<int:patient_pk>/lab/', LaboratoryPatientUpdateView.as_view(), name='patient-lab-update'),
+    path('patients/<int:patient_pk>/payment/', PaymentCreateView.as_view(), name='patient-payment-create'),
 ]

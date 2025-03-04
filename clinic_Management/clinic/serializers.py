@@ -1,13 +1,37 @@
 # clinic/serializers.py
 from rest_framework import serializers
-from .models import Employee, Patient, PatientNurseDetails , PatientDoctorDetail ,LaboratoryPatientDetail 
 from rest_framework.exceptions import PermissionDenied
+from .models import Employee, Patient, PatientNurseDetails, PatientDoctorDetail, LaboratoryPatientDetail, Payment
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = ['id', 'patient', 'amount', 'payment_date', 'payment_method', 'transaction_id', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['payment_date', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("Authentication required")
+        
+        patient_id = validated_data.get('patient').id if validated_data.get('patient') else self.context.get('patient_id')
+        try:
+            patient = Patient.objects.get(id=patient_id)
+        except Patient.DoesNotExist:
+            raise serializers.ValidationError("Patient not found")
+        
+        validated_data['patient'] = patient
+        payment = Payment.objects.create(**validated_data)
+        # Update patient payment status
+        patient.payment_status = True
+        patient.save()
+        return payment
 
 class LaboratoryPatientDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = LaboratoryPatientDetail
-        fields = ['test_type', 'test_results', 'sample_collected', 'lab_technician', 'updated_at']
-        read_only_fields = ['lab_technician', 'updated_at']
+        fields = ['test_type', 'test_results', 'sample_collected', 'lab_technician', 'updated_at', 'payment_verified']
+        read_only_fields = ['lab_technician', 'updated_at', 'payment_verified']
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -23,7 +47,11 @@ class LaboratoryPatientDetailSerializer(serializers.ModelSerializer):
         except Patient.DoesNotExist:
             raise serializers.ValidationError("Patient not found")
         
+        if not patient.payment_status:
+            raise serializers.ValidationError("Payment for lab tests is required before proceeding")
+        
         validated_data['lab_technician'] = request.user
+        validated_data['payment_verified'] = True  # Set to True after payment verification
         lab_details, created = LaboratoryPatientDetail.objects.update_or_create(
             patient=patient,
             defaults=validated_data
@@ -33,8 +61,8 @@ class LaboratoryPatientDetailSerializer(serializers.ModelSerializer):
 class PatientDoctorDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientDoctorDetail
-        fields = ['diagnosis', 'treatment_plan', 'notes', 'doctor', 'updated_at']
-        read_only_fields = ['doctor', 'updated_at']
+        fields = ['diagnosis', 'treatment_plan', 'notes', 'doctor', 'updated_at', 'lab_referral']
+        read_only_fields = ['doctor', 'updated_at', 'lab_referral']
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -56,7 +84,7 @@ class PatientDoctorDetailSerializer(serializers.ModelSerializer):
             defaults=validated_data
         )
         return doctor_details
-    
+
 class PatientNurseDetailsSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientNurseDetails
@@ -88,18 +116,20 @@ class PatientNurseDetailsSerializer(serializers.ModelSerializer):
         return nurse_details
 
 class PatientSerializer(serializers.ModelSerializer):
-    nurse_details = PatientNurseDetailsSerializer(read_only=True)
+    nurse_details = PatientNurseDetailsSerializer( read_only=True)
     doctor_details = PatientDoctorDetailSerializer( read_only=True)
+    lab_details = LaboratoryPatientDetailSerializer(read_only=True)
+    payments = PaymentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Patient
         fields = [
             'id', 'first_name', 'last_name', 'grandfather_name', 'sex', 'phone_number',
             'card_no', 'kebele', 'region', 'woreda', 'registration_date', 'symptoms',
-            'receptionist', 'nurse', 'doctor', 'status', 'created_at', 'updated_at',
-            'nurse_details', 'doctor_details'
+            'receptionist', 'nurse', 'doctor', 'lab_technician', 'status', 'created_at',
+            'updated_at', 'payment_status', 'nurse_details', 'doctor_details', 'lab_details', 'payments'
         ]
-        read_only_fields = ['registration_date', 'created_at', 'updated_at', 'status', 'receptionist', 'nurse', 'doctor', 'nurse_details', 'doctor_details']
+        read_only_fields = ['registration_date', 'created_at', 'updated_at', 'status', 'receptionist', 'nurse', 'doctor', 'lab_technician', 'nurse_details', 'doctor_details', 'lab_details', 'payments']
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -109,8 +139,10 @@ class PatientSerializer(serializers.ModelSerializer):
         if request.user.role != 'Receptionist':
             raise PermissionDenied("Only Receptionists can register patients")
         
-        validated_data.pop('nurse_details', None)  # Remove nurse_details if present
-        validated_data.pop('doctor_details', None)  # Remove doctor_details if present
+        validated_data.pop('nurse_details', None)
+        validated_data.pop('doctor_details', None)
+        validated_data.pop('lab_details', None)
+        validated_data.pop('payments', None)
         
         validated_data['receptionist'] = request.user
         validated_data['status'] = 'PENDING'
@@ -130,7 +162,7 @@ class PatientSerializer(serializers.ModelSerializer):
         instance.status = validated_data.get('status', instance.status)
         instance.save()
         return instance
-    
+
 class EmployeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Employee
